@@ -19,7 +19,7 @@ import { useAuth } from '../../context/AuthContext';
 import { storeService } from '../../services/storeService';
 import { Product } from '../../types';
 import { stripHtml } from '../../utils/htmlUtils';
-import { BrandLogo } from './BrandLogo';
+
 
 interface HeaderProps {
   currentView: string;
@@ -129,15 +129,17 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {/* Zone 1: Official YehMart Brand Logo */}
-            <div className="flex items-center gap-4">
-              <BrandLogo
-                size="md"
-                onClick={() => {
-                  setSelectedCategory(null);
-                  setCurrentView('home');
-                }}
-              />
-            </div>
+            <button
+              onClick={() => {
+                setSelectedCategory(null);
+                setCurrentView('home');
+              }}
+              aria-label="YehMart home"
+              className="text-2xl font-black tracking-tight text-stone-950 font-['Syne'] flex items-baseline gap-0.5 cursor-pointer"
+            >
+              <span>yehmart</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+            </button>
 
             {/* Zone 2: Clean text navigation links */}
             <nav className="hidden lg:flex items-center gap-8 text-[13px] font-semibold text-stone-700 tracking-wide uppercase">

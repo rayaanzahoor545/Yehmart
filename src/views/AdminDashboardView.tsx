@@ -52,7 +52,6 @@ import { RichTextEditor } from '../components/admin/RichTextEditor';
 import { ProductImageUploader } from '../components/admin/ProductImageUploader';
 import { CSVProductImporter } from '../components/admin/CSVProductImporter';
 import { stripHtml, FALLBACK_PRODUCT_IMAGE } from '../utils/htmlUtils';
-import { BrandLogo } from '../components/common/BrandLogo';
 import { useAuth } from '../context/AuthContext';
 import { supabase, supabaseUrl, supabaseAnonKey, isSupabaseConfigured } from '../services/supabase';
 
@@ -662,7 +661,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           {/* Brand & Store Status Pill */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
-              <BrandLogo variant="dark" size="sm" onClick={onBackToStorefront} />
+              <button
+                onClick={onBackToStorefront}
+                aria-label="Back to storefront"
+                className="text-xl font-black tracking-tight text-white font-['Syne'] flex items-baseline gap-0.5 cursor-pointer"
+              >
+                <span>yehmart</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+              </button>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono tracking-wider uppercase font-bold bg-amber-400 text-stone-950">
                 PRO ADMIN
               </span>
@@ -2848,7 +2854,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <div className="relative bg-white text-stone-900 rounded-3xl max-w-2xl w-full p-8 shadow-2xl z-10 max-h-[90vh] overflow-y-auto space-y-6">
             <div className="flex items-center justify-between pb-6 border-b border-stone-200">
               <div className="flex items-center gap-3">
-                <BrandLogo variant="light" size="md" />
+                <span className="text-2xl font-black tracking-tight text-stone-950 font-['Syne'] flex items-baseline gap-0.5">
+                  <span>yehmart</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                </span><BrandLogo variant="light" size="md" />
                 <div>
                   <p className="text-xs text-stone-500 font-mono">
                     Lahore Fulfillment Hub · Pakistan

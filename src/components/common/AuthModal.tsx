@@ -14,7 +14,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { BrandLogo } from './BrandLogo';
+
 
 export const AuthModal: React.FC = () => {
   const {
@@ -121,7 +121,10 @@ export const AuthModal: React.FC = () => {
         {/* Header Header & Branding */}
         <div className="pt-8 pb-4 px-6 text-center bg-stone-50 border-b border-stone-100">
           <div className="flex justify-center mb-2">
-            <BrandLogo />
+            <span className="text-2xl font-black tracking-tight text-stone-950 font-['Syne'] flex items-baseline gap-0.5">
+            <span>yehmart</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+            </span>
           </div>
           <p className="text-xs text-stone-500 font-['Urbanist'] mt-1">
             {authModalMode === 'login'
