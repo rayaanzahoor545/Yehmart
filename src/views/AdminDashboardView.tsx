@@ -53,7 +53,6 @@ import { ProductImageUploader } from '../components/admin/ProductImageUploader';
 import { CSVProductImporter } from '../components/admin/CSVProductImporter';
 import { stripHtml, FALLBACK_PRODUCT_IMAGE } from '../utils/htmlUtils';
 import { BrandLogo } from '../components/common/BrandLogo';
-import { supabaseUrl, supabaseAnonKey, isSupabaseConfigured } from '../services/supabase';
 
 interface AdminDashboardViewProps {
   onBackToStorefront: () => void;
@@ -89,6 +88,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   // Global search & notifications
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+
+  // Supabase Configuration from environment
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const isSupabaseConfigured = Boolean(
+    supabaseUrl &&
+    supabaseAnonKey &&
+    !supabaseUrl.includes('placeholder') &&
+    !supabaseUrl.includes('your-project')
+  );
 
   // Product Add / Edit Modal state
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
