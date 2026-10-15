@@ -1,0 +1,6 @@
+{
+  "name": "yehmart",
+  "description": "Pakistan's premier single-vendor luxury digital storefront. Curated precision audio, mechanical horology, and modern streetwear.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
