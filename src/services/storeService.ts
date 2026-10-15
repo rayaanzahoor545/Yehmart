@@ -60,17 +60,17 @@ class StoreService {
   private initSeedData() {
     if (typeof window === 'undefined') return;
 
-    // User explicit request: "sub product delete kro sirf dummy products rakho baqi csv sai uplaod krun ga"
-    const resetKey = 'yehmart_reset_to_dummy_only_v2';
-    if (!localStorage.getItem(resetKey)) {
-      localStorage.setItem(resetKey, 'true');
-      localStorage.removeItem('yehmart_dummy_cleared_v1');
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(INITIAL_PRODUCTS));
-      this.recalculateCategoryCounts(INITIAL_PRODUCTS);
+    // User explicit request: "remove all products from this website just"
+    const wipeAllKey = 'yehmart_wipe_all_products_v6';
+    if (!localStorage.getItem(wipeAllKey)) {
+      localStorage.setItem(wipeAllKey, 'true');
+      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
+      localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
+      this.recalculateCategoryCounts([]);
     }
 
     if (!localStorage.getItem(STORAGE_KEYS.PRODUCTS)) {
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(INITIAL_PRODUCTS));
+      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.CATEGORIES)) {
       localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(INITIAL_CATEGORIES));

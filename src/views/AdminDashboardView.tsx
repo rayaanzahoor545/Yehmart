@@ -52,6 +52,8 @@ import { RichTextEditor } from '../components/admin/RichTextEditor';
 import { ProductImageUploader } from '../components/admin/ProductImageUploader';
 import { CSVProductImporter } from '../components/admin/CSVProductImporter';
 import { stripHtml, FALLBACK_PRODUCT_IMAGE } from '../utils/htmlUtils';
+import { BrandLogo } from '../components/common/BrandLogo';
+import { supabaseUrl, supabaseAnonKey, isSupabaseConfigured } from '../services/supabase';
 
 interface AdminDashboardViewProps {
   onBackToStorefront: () => void;
@@ -118,6 +120,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
   const [isClearDummyModalOpen, setIsClearDummyModalOpen] = useState(false);
   const [isResetToDummyModalOpen, setIsResetToDummyModalOpen] = useState(false);
+  const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
 
   // Orders Management Filters
   const [orderSearch, setOrderSearch] = useState('');
@@ -386,6 +389,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     setTimeout(() => setSuccessBanner(null), 8000);
   };
 
+  const handleConfirmClearAllProducts = () => {
+    storeService.clearAllProducts();
+    setProducts([]);
+    setCategories(storeService.getCategories());
+    setSelectedProductIds([]);
+    setIsClearAllModalOpen(false);
+    setSuccessBanner(
+      'All products have been completely removed from this website! The store catalog is now clean (0 products) and ready for your CSV upload.'
+    );
+    setTimeout(() => setSuccessBanner(null), 8000);
+  };
+
   const handleImportCsvSuccess = (
     importedProducts: Product[],
     removeDummyProducts: boolean,
@@ -548,10 +563,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           {/* Brand & Store Status Pill */}
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xl sm:text-2xl font-black tracking-tight text-white font-['Syne']">
-                yehmart
-              </span>
+            <div className="flex items-center gap-3">
+              <BrandLogo variant="dark" size="sm" onClick={onBackToStorefront} />
               <span className="px-2 py-0.5 rounded text-[10px] font-mono tracking-wider uppercase font-bold bg-amber-400 text-stone-950">
                 PRO ADMIN
               </span>
@@ -1008,23 +1021,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       <span>Import CSV Products</span>
                     </button>
 
-                    <button
-                      onClick={() => setIsResetToDummyModalOpen(true)}
-                      className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                      title="Keep only dummy products and delete all extra/uploaded products"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Sirf Dummy Rakho (Keep Dummy Only)</span>
-                    </button>
-
-                    {storeService.getDummyProductCount() > 0 && (
+                    {products.length > 0 && (
                       <button
-                        onClick={handleClearDummyProductsPrompt}
-                        className="px-3 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/70 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                        title="Remove all initial demo products"
+                        onClick={() => setIsClearAllModalOpen(true)}
+                        className="px-3.5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/70 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Remove all products from this website"
                       >
                         <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                        <span>Remove Dummy ({storeService.getDummyProductCount()})</span>
+                        <span>Remove All Products ({products.length})</span>
                       </button>
                     )}
 
@@ -1234,32 +1238,55 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       {paginatedAdminProducts.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="p-12 text-center">
-                            <div className="max-w-sm mx-auto space-y-3">
-                              <div className="w-12 h-12 rounded-2xl bg-stone-900 border border-stone-800 text-stone-500 flex items-center justify-center mx-auto">
-                                <Package className="w-6 h-6" />
+                            <div className="max-w-md mx-auto space-y-3">
+                              <div className="w-14 h-14 rounded-2xl bg-stone-900 border border-stone-800 text-stone-500 flex items-center justify-center mx-auto">
+                                <Package className="w-7 h-7" />
                               </div>
-                              <div className="text-stone-300 font-bold text-sm font-['Urbanist']">
-                                No products found matching criteria
+                              <div className="text-stone-200 font-bold text-base font-['Urbanist']">
+                                {products.length === 0 ? 'Website Catalog Empty (0 Products)' : 'No products found matching criteria'}
                               </div>
-                              <p className="text-xs text-stone-500">
-                                Try adjusting your search query, department, stock, or visibility filters.
+                              <p className="text-xs text-stone-400 leading-relaxed">
+                                {products.length === 0
+                                  ? 'All previous products have been removed as requested. You can upload your fresh merchandise via CSV or create articles manually.'
+                                  : 'Try adjusting your search query, department, stock, or visibility filters.'}
                               </p>
-                              {(productSearch ||
-                                productCatFilter !== 'all' ||
-                                productStockFilter !== 'all' ||
-                                productStatusFilter !== 'all') && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setProductSearch('');
-                                    setProductCatFilter('all');
-                                    setProductStockFilter('all');
-                                    setProductStatusFilter('all');
-                                  }}
-                                  className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-xs font-bold text-white transition-colors cursor-pointer"
-                                >
-                                  Reset All Filters
-                                </button>
+                              {products.length === 0 ? (
+                                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCsvImporter(true)}
+                                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-stone-950 text-xs font-extrabold flex items-center gap-2 shadow-md transition-all cursor-pointer"
+                                  >
+                                    <FileSpreadsheet className="w-4 h-4" />
+                                    <span>Upload Products via CSV</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleOpenAddProduct}
+                                    className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                    <span>Create Article</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                (productSearch ||
+                                  productCatFilter !== 'all' ||
+                                  productStockFilter !== 'all' ||
+                                  productStatusFilter !== 'all') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setProductSearch('');
+                                      setProductCatFilter('all');
+                                      setProductStockFilter('all');
+                                      setProductStatusFilter('all');
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-xs font-bold text-white transition-colors cursor-pointer"
+                                  >
+                                    Reset All Filters
+                                  </button>
+                                )
                               )}
                             </div>
                           </td>
@@ -2018,12 +2045,68 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="px-6 py-2.5 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold rounded-xl shadow transition-colors"
+                    className="px-6 py-2.5 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold rounded-xl shadow transition-colors cursor-pointer"
                   >
                     Save Operational Settings
                   </button>
                 </div>
               </form>
+
+              {/* Supabase PostgreSQL Database Integration Status */}
+              <div className="mt-8 pt-6 border-t border-stone-800">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                      <ShieldCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white font-['Syne']">
+                        Supabase PostgreSQL Database
+                      </h3>
+                      <p className="text-[11px] text-stone-400">
+                        Production Cloud Database & Row-Level Security
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                    isSupabaseConfigured
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isSupabaseConfigured ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                    {isSupabaseConfigured ? 'Live Connected' : 'Local Fallback'}
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-stone-900/80 border border-stone-800 space-y-3 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-stone-800/60">
+                    <span className="text-stone-400">Project Reference ID:</span>
+                    <span className="font-mono text-stone-200 font-semibold bg-stone-950 px-2.5 py-0.5 rounded-lg border border-stone-800">
+                      {supabaseUrl ? supabaseUrl.replace(/^https?:\/\//, '').split('.')[0] : 'None'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-stone-800/60">
+                    <span className="text-stone-400">Project Endpoint:</span>
+                    <span className="font-mono text-emerald-300 text-[11px]">
+                      {supabaseUrl || 'Not configured'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-stone-800/60">
+                    <span className="text-stone-400">Publishable / Anon Key:</span>
+                    <span className="font-mono text-stone-400 text-[11px]">
+                      {supabaseAnonKey
+                        ? `${supabaseAnonKey.slice(0, 14)}••••••••${supabaseAnonKey.slice(-4)}`
+                        : 'Configured in .env'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <span className="text-stone-400">RLS Tables Active:</span>
+                    <span className="text-stone-300 font-medium">
+                      products, orders, categories, profiles, reviews, coupons
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </main>
@@ -2647,11 +2730,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
           <div className="relative bg-white text-stone-900 rounded-3xl max-w-2xl w-full p-8 shadow-2xl z-10 max-h-[90vh] overflow-y-auto space-y-6">
             <div className="flex items-center justify-between pb-6 border-b border-stone-200">
-              <div>
-                <span className="text-2xl font-black font-['Syne']">yehmart</span>
-                <p className="text-xs text-stone-500 font-mono mt-0.5">
-                  Lahore Fulfillment Hub · Pakistan
-                </p>
+              <div className="flex items-center gap-3">
+                <BrandLogo variant="light" size="md" />
+                <div>
+                  <p className="text-xs text-stone-500 font-mono">
+                    Lahore Fulfillment Hub · Pakistan
+                  </p>
+                  <p className="text-[11px] text-stone-400">Official Kitchenware E-Commerce</p>
+                </div>
               </div>
               <div className="text-right">
                 <div className="text-xs font-mono font-bold text-stone-500">PACKING SLIP / INVOICE</div>
@@ -2931,6 +3017,47 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-md transition-colors cursor-pointer"
               >
                 Haan, Sirf Dummy Rakho
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. REMOVE ALL PRODUCTS CONFIRMATION MODAL */}
+      {isClearAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-stone-900 border border-rose-500/40 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white font-['Syne']">
+                  Remove All Products From Website?
+                </h3>
+                <p className="text-xs text-stone-300 leading-relaxed">
+                  Kya aap waqayi tamam products ({products.length}) website se delete karna chahte hain? Store ka catalog bilkul saaf (0 products) ho jaye ga taake aap apni nayi CSV file upload kar sakein.
+                </p>
+                <p className="text-[11px] text-stone-400 font-mono">
+                  This permanently removes all articles from the website catalog.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsClearAllModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-stone-800 hover:bg-stone-700 text-stone-300 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClearAllProducts}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md transition-colors cursor-pointer"
+              >
+                Haan, Remove All Products
               </button>
             </div>
           </div>
