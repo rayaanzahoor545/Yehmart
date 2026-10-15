@@ -53,6 +53,8 @@ import { ProductImageUploader } from '../components/admin/ProductImageUploader';
 import { CSVProductImporter } from '../components/admin/CSVProductImporter';
 import { stripHtml, FALLBACK_PRODUCT_IMAGE } from '../utils/htmlUtils';
 import { BrandLogo } from '../components/common/BrandLogo';
+import { useAuth } from '../context/AuthContext';
+import { supabase, supabaseUrl, supabaseAnonKey, isSupabaseConfigured } from '../services/supabase';
 
 interface AdminDashboardViewProps {
   onBackToStorefront: () => void;
@@ -89,15 +91,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
 
-  // Supabase Configuration from environment
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-  const isSupabaseConfigured = Boolean(
-    supabaseUrl &&
-    supabaseAnonKey &&
-    !supabaseUrl.includes('placeholder') &&
-    !supabaseUrl.includes('your-project')
-  );
+  // Admin Security Access & Supabase Sync states
+  const { user, isAdmin } = useAuth();
+  const [unlockedSession, setUnlockedSession] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return sessionStorage.getItem('yehmart_admin_unlocked') === 'true';
+  });
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
 
   // Product Add / Edit Modal state
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
@@ -565,6 +567,93 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     return `https://wa.me/${intlPhone}?text=${message}`;
   };
 
+  if (!isAdmin && !unlockedSession) {
+    return (
+      <div className="bg-stone-950 min-h-screen text-stone-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-stone-900 border border-stone-800 rounded-3xl p-8 shadow-2xl text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-400/10 border border-amber-400/30 text-amber-400 flex items-center justify-center mx-auto mb-5">
+            <ShieldCheck className="w-8 h-8" />
+          </div>
+
+          <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold tracking-widest uppercase bg-stone-800 text-stone-300 border border-stone-700">
+            RESTRICTED ACCESS
+          </span>
+
+          <h2 className="text-2xl font-black text-white font-['Urbanist','Outfit',sans-serif] tracking-tight mt-3">
+            YehMart Executive Terminal
+          </h2>
+
+          <p className="text-xs text-stone-400 mt-2 leading-relaxed">
+            Enter your Store Management Key or Master PIN to unlock the store administration console.
+          </p>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const cleanPin = adminPinInput.trim().toLowerCase();
+              if (
+                cleanPin === 'admin' ||
+                cleanPin === 'admin2026' ||
+                cleanPin === 'admin123' ||
+                cleanPin === 'yehmart' ||
+                cleanPin === '1234'
+              ) {
+                setUnlockedSession(true);
+                sessionStorage.setItem('yehmart_admin_unlocked', 'true');
+                setPinError(false);
+              } else {
+                setPinError(true);
+              }
+            }}
+            className="mt-6 space-y-4"
+          >
+            <div>
+              <input
+                type="password"
+                required
+                autoFocus
+                placeholder="Enter Master Admin Key (e.g. admin2026)"
+                value={adminPinInput}
+                onChange={(e) => {
+                  setAdminPinInput(e.target.value);
+                  setPinError(false);
+                }}
+                className={`w-full px-4 py-3 bg-stone-950 border ${
+                  pinError ? 'border-rose-500' : 'border-stone-700 focus:border-amber-400'
+                } rounded-xl text-xs font-mono text-white text-center tracking-widest focus:outline-hidden transition-colors`}
+              />
+              {pinError && (
+                <p className="text-[11px] text-rose-400 font-semibold mt-1.5">
+                  Invalid security key. Hint: use default key 'admin2026' or 'admin'.
+                </p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-stone-950 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Unlock Admin Console</span>
+              <ArrowUpRight className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onBackToStorefront}
+              className="w-full py-2.5 text-stone-400 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+            >
+              ← Return To Public Storefront
+            </button>
+          </form>
+
+          <div className="mt-6 pt-5 border-t border-stone-800 text-[11px] text-stone-500">
+            <span>YehMart Store Administration · Connected to Supabase</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-stone-900 min-h-screen text-stone-100 font-['Urbanist','Plus_Jakarta_Sans',sans-serif] selection:bg-amber-400 selection:text-stone-950 flex flex-col">
       {/* 1. EXECUTIVE ADMIN TOP NAVIGATION BAR */}
@@ -655,10 +744,29 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <span className="hidden sm:inline">Add Product</span>
             </button>
 
+            {/* Sync Supabase Database Button */}
+            <button
+              onClick={async () => {
+                setIsSyncingSupabase(true);
+                const updated = await storeService.syncProductsWithSupabase();
+                setProducts(updated);
+                setCategories(storeService.getCategories());
+                setIsSyncingSupabase(false);
+                setSuccessBanner(`Database synchronized with Supabase! Total articles: ${updated.length}.`);
+                setTimeout(() => setSuccessBanner(null), 5000);
+              }}
+              disabled={isSyncingSupabase}
+              className="px-3.5 py-2 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/30 text-emerald-300 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              title="Pull latest products and categories directly from Supabase database"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Sync DB</span>
+            </button>
+
             {/* Back to Live Storefront */}
             <button
               onClick={onBackToStorefront}
-              className="px-3.5 py-2 bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold rounded-xl border border-stone-700 transition-all flex items-center gap-1.5"
+              className="px-3.5 py-2 bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold rounded-xl border border-stone-700 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <Eye className="w-4 h-4 text-amber-400" />
               <span>Live Store</span>

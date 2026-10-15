@@ -589,7 +589,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   {reviews.length === 0 ? (
                     <p className="text-xs text-stone-400">No customer reviews yet. Be the first to review!</p>
                   ) : (
-                    reviews.map((rev) => (
+                    reviews.map((rev: any) => (
                       <div key={rev.id} className="p-4 rounded-xl border border-stone-200 space-y-2">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">

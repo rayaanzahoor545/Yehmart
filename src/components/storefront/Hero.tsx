@@ -309,7 +309,13 @@ export const Hero: React.FC<HeroProps> = ({
   onQuickView,
 }) => {
   const { addToCart, setIsCartOpen } = useCart();
-  const allProducts = storeService.getProducts();
+  const [allProducts, setAllProducts] = useState<Product[]>(() => storeService.getProducts());
+
+  useEffect(() => {
+    return storeService.subscribeProducts((updated) => {
+      setAllProducts(updated);
+    });
+  }, []);
 
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
@@ -430,6 +436,112 @@ export const Hero: React.FC<HeroProps> = ({
     setCopiedCoupon(true);
     setTimeout(() => setCopiedCoupon(false), 3000);
   };
+
+  if (allProducts.length === 0) {
+    return (
+      <div className="relative bg-stone-950 text-white overflow-hidden border-b border-stone-800">
+        <div className="absolute top-10 left-1/4 w-[600px] h-[600px] rounded-full blur-[140px] pointer-events-none bg-emerald-500/10" />
+        <div className="absolute bottom-10 right-10 w-[500px] h-[500px] bg-teal-500/10 rounded-full blur-[120px] pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-14 pb-14 sm:pb-20 relative z-10">
+          {/* Top Floating Utility Ribbon */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-6 border-b border-stone-800/80 mb-8 sm:mb-12 text-xs">
+            <div className="flex items-center gap-2 text-stone-300 font-mono">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <span className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider">
+                NATIONWIDE DELIVERY ACTIVE:
+              </span>
+              <span className="text-stone-300 text-[11px] font-normal truncate">
+                TCS & Leopard Express Courier across Islamabad, Lahore, Karachi & all cities
+              </span>
+            </div>
+
+            <button
+              onClick={handleCopyCoupon}
+              className="flex items-center gap-2 px-3 py-1 rounded-full bg-stone-900/90 border border-amber-500/30 text-amber-300 hover:border-amber-400 transition-all text-[11px] font-mono cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Welcome Code:</span>
+              <span className="font-bold tracking-wider text-white">YEHMARTVIP</span>
+              <span className="text-amber-400 font-bold">(-15%)</span>
+              {copiedCoupon ? (
+                <span className="text-emerald-400 font-bold">COPIED!</span>
+              ) : (
+                <Copy className="w-3 h-3 text-stone-400" />
+              )}
+            </button>
+          </div>
+
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold tracking-widest uppercase mb-6">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>YEHMART FLAGSHIP ATELIER · PAKISTAN</span>
+            </div>
+
+            <h1 className="text-4xl sm:text-6xl font-black font-['Urbanist','Outfit',sans-serif] tracking-tight leading-[1.08] text-white">
+              Curated Luxury Meets Everyday Precision
+            </h1>
+
+            <p className="mt-5 text-sm sm:text-base text-stone-300 leading-relaxed max-w-2xl font-['Urbanist']">
+              Pakistan’s premier multi-category department store. Explore premium acoustic engineering, horology, and elevated lifestyle essentials. 100% Cash on Delivery nationwide with TCS doorstep express dispatch.
+            </p>
+
+            <div className="mt-8 flex flex-wrap items-center gap-4">
+              <button
+                onClick={onExploreClick}
+                className="px-6 py-3.5 bg-white text-stone-950 hover:bg-stone-100 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-xl flex items-center gap-2.5 cursor-pointer"
+              >
+                <span>Browse Store Catalog</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={onDealsClick}
+                className="px-6 py-3.5 bg-stone-900 border border-stone-700 hover:border-stone-500 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2.5 cursor-pointer"
+              >
+                <span>Explore Departments</span>
+              </button>
+            </div>
+
+            {/* Trust Badges Bar */}
+            <div className="mt-12 pt-8 border-t border-stone-800/80 grid grid-cols-1 sm:grid-cols-3 gap-6">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">100% Authentic</h4>
+                  <p className="text-[11px] text-stone-400 mt-0.5">Verified genuine articles with quality check</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">48h Express TCS</h4>
+                  <p className="text-[11px] text-stone-400 mt-0.5">Doorstep dispatch to 150+ Pakistani cities</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Cash on Delivery</h4>
+                  <p className="text-[11px] text-stone-400 mt-0.5">Inspect parcel upon delivery before paying</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

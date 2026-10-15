@@ -19,6 +19,7 @@ import { useAuth } from '../../context/AuthContext';
 import { storeService } from '../../services/storeService';
 import { Product } from '../../types';
 import { stripHtml } from '../../utils/htmlUtils';
+import { BrandLogo } from './BrandLogo';
 
 interface HeaderProps {
   currentView: string;
@@ -37,7 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { itemCount, setIsCartOpen, subtotal } = useCart();
   const { wishlistCount } = useWishlist();
-  const { user, isAdmin, switchRole } = useAuth();
+  const { user, isAdmin, openLoginModal } = useAuth();
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -94,28 +95,6 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Quick Role Switcher for instant testing */}
-            <div className="flex items-center gap-1.5 bg-stone-900 border border-stone-800 rounded px-2.5 py-0.5 text-[10px]">
-              <span className="text-stone-400">Mode:</span>
-              <button
-                onClick={() => {
-                  if (!isAdmin) {
-                    switchRole('admin');
-                    setCurrentView('admin');
-                  } else {
-                    switchRole('customer');
-                    setCurrentView('home');
-                  }
-                }}
-                className={`font-semibold transition-colors ${
-                  isAdmin ? 'text-amber-400' : 'text-emerald-400'
-                }`}
-                title="Click to toggle between Customer and Admin Store View"
-              >
-                {isAdmin ? 'Store Admin ⚙' : 'Client Mode 🛍'}
-              </button>
-            </div>
-
             <button
               onClick={() => setCurrentView('track-order')}
               className="hover:text-white transition-colors hidden sm:inline tracking-wider uppercase text-[10px]"
@@ -149,18 +128,15 @@ export const Header: React.FC<HeaderProps> = ({
               <Menu className="w-5 h-5" />
             </button>
 
-            {/* Zone 1: Single text element wordmark */}
-            <div className="flex items-center gap-6">
-              <button
+            {/* Zone 1: Official YehMart Brand Logo */}
+            <div className="flex items-center gap-4">
+              <BrandLogo
+                size="md"
                 onClick={() => {
                   setSelectedCategory(null);
                   setCurrentView('home');
                 }}
-                className="text-2xl font-black tracking-[-0.04em] text-stone-950 font-['Outfit','Syne',sans-serif] text-left flex items-baseline gap-1 group"
-              >
-                <span className="text-stone-950 group-hover:text-stone-800 transition-colors">yehmart</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 mb-0.5 inline-block group-hover:scale-125 transition-transform" />
-              </button>
+              />
             </div>
 
             {/* Zone 2: Clean text navigation links */}
@@ -253,20 +229,36 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {/* Account / Admin */}
-              {isAdmin ? (
-                <button
-                  onClick={() => setCurrentView('admin')}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-stone-900 text-white rounded-md hover:bg-stone-800 transition-colors"
-                >
-                  <span>Admin Console</span>
-                </button>
+              {user ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentView('account')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 hover:border-stone-400 bg-stone-50 hover:bg-stone-100 transition-colors text-xs font-semibold text-stone-900 cursor-pointer"
+                    title={`Signed in as ${user.fullName || user.email}`}
+                  >
+                    <User className="w-4 h-4 text-emerald-700" />
+                    <span className="max-w-[110px] truncate hidden sm:inline">
+                      {user.fullName || user.email?.split('@')[0]}
+                    </span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setCurrentView('admin')}
+                      className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-stone-900 text-amber-300 rounded-lg hover:bg-stone-800 transition-colors cursor-pointer"
+                      title="Open Store Administration"
+                    >
+                      <span>Admin</span>
+                    </button>
+                  )}
+                </div>
               ) : (
                 <button
-                  onClick={() => setCurrentView('account')}
-                  className="p-2 text-stone-700 hover:text-stone-950 rounded-md hover:bg-stone-100 transition-colors"
-                  aria-label="Customer account"
+                  onClick={openLoginModal}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-900 transition-colors text-xs font-bold cursor-pointer"
+                  title="Sign In or Register"
                 >
-                  <User className="w-5 h-5" />
+                  <User className="w-4 h-4" />
+                  <span className="hidden sm:inline">Sign In</span>
                 </button>
               )}
 
@@ -370,10 +362,14 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="fixed inset-y-0 left-0 max-w-xs w-full bg-white shadow-xl z-10 flex flex-col justify-between p-6">
             <div>
               <div className="flex items-center justify-between pb-6 border-b border-stone-100">
-                <span className="text-xl font-black font-['Syne'] tracking-tight flex items-baseline gap-0.5">
-                  <span>yehmart</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
-                </span>
+                <BrandLogo
+                  size="sm"
+                  onClick={() => {
+                    setSelectedCategory(null);
+                    setCurrentView('home');
+                    setMobileMenuOpen(false);
+                  }}
+                />
                 <button
                   onClick={() => setMobileMenuOpen(false)}
                   className="p-1 text-stone-500 hover:text-stone-900"
@@ -430,15 +426,40 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   Wishlist ({wishlistCount})
                 </button>
-                <button
-                  onClick={() => {
-                    setCurrentView(isAdmin ? 'admin' : 'account');
-                    setMobileMenuOpen(false);
-                  }}
-                  className="block w-full text-left text-base font-medium text-stone-700"
-                >
-                  {isAdmin ? 'Admin Dashboard' : 'My Account'}
-                </button>
+                {user ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setCurrentView('account');
+                        setMobileMenuOpen(false);
+                      }}
+                      className="block w-full text-left text-base font-medium text-stone-700"
+                    >
+                      My Account ({user.fullName || user.email?.split('@')[0]})
+                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          setCurrentView('admin');
+                          setMobileMenuOpen(false);
+                        }}
+                        className="block w-full text-left text-base font-semibold text-amber-600"
+                      >
+                        Admin Dashboard ⚙
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <button
+                    onClick={() => {
+                      openLoginModal();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="block w-full text-left text-base font-semibold text-emerald-800"
+                  >
+                    Sign In / Register
+                  </button>
+                )}
               </div>
 
               <div className="pt-4 border-t border-stone-100">

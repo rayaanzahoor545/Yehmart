@@ -9,6 +9,8 @@ import {
   FlashSale,
   CartItem,
   OrderStatus,
+  OrderItem,
+  OrderStatusHistoryItem,
 } from '../types';
 import {
   INITIAL_CATEGORIES,
@@ -19,6 +21,7 @@ import {
   INITIAL_REVIEWS,
 } from '../data/seedData';
 import { stripHtml } from '../utils/htmlUtils';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'yehmart_products_v1',
@@ -33,16 +36,7 @@ const STORAGE_KEYS = {
   CART: 'yehmart_cart_v1',
 };
 
-// Default Demo User
-export const DEMO_CUSTOMER: UserProfile = {
-  id: 'usr-customer-01',
-  email: 'a.aliahmed9704@gmail.com',
-  fullName: 'Ali Ahmed',
-  phone: '03001234567',
-  role: 'customer',
-  createdAt: '2026-09-01T10:00:00Z',
-};
-
+// Demo Admin reference
 export const DEMO_ADMIN: UserProfile = {
   id: 'usr-admin-01',
   email: 'admin@yehmart.pk',
@@ -52,22 +46,50 @@ export const DEMO_ADMIN: UserProfile = {
   createdAt: '2026-01-01T00:00:00Z',
 };
 
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 class StoreService {
+  private productListeners: Array<(products: Product[]) => void> = [];
+
   constructor() {
     this.initSeedData();
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        this.syncProductsWithSupabase();
+      }, 100);
+    }
+  }
+
+  // Subscribe to changes in products catalog
+  subscribeProducts(cb: (products: Product[]) => void): () => void {
+    this.productListeners.push(cb);
+    return () => {
+      this.productListeners = this.productListeners.filter((l) => l !== cb);
+    };
+  }
+
+  private notifyListeners() {
+    const current = this.getProducts();
+    this.productListeners.forEach((cb) => {
+      try {
+        cb(current);
+      } catch (e) {
+        console.error('Error notifying product listener', e);
+      }
+    });
   }
 
   private initSeedData() {
     if (typeof window === 'undefined') return;
-
-    // User explicit request: "remove all products from this website just"
-    const wipeAllKey = 'yehmart_wipe_all_products_v6';
-    if (!localStorage.getItem(wipeAllKey)) {
-      localStorage.setItem(wipeAllKey, 'true');
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
-      localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
-      this.recalculateCategoryCounts([]);
-    }
 
     if (!localStorage.getItem(STORAGE_KEYS.PRODUCTS)) {
       localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
@@ -88,29 +110,102 @@ class StoreService {
       localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(INITIAL_REVIEWS));
     }
     if (!localStorage.getItem(STORAGE_KEYS.ADDRESSES)) {
-      const defaultAddresses: Address[] = [
-        {
-          id: 'addr-1',
-          userId: DEMO_CUSTOMER.id,
-          label: 'Home',
-          recipientName: 'Ali Ahmed',
-          phone: '03001234567',
-          streetAddress: 'House 14-B, Street 3, Sector F-7/2',
-          areaLocality: 'F-7 Markaz',
-          city: 'Islamabad',
-          province: 'Islamabad Capital Territory',
-          postalCode: '44000',
-          isDefault: true,
-        },
-      ];
-      localStorage.setItem(STORAGE_KEYS.ADDRESSES, JSON.stringify(defaultAddresses));
+      localStorage.setItem(STORAGE_KEYS.ADDRESSES, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.WISHLIST)) {
-      localStorage.setItem(STORAGE_KEYS.WISHLIST, JSON.stringify(['prod-01', 'prod-02']));
+      localStorage.setItem(STORAGE_KEYS.WISHLIST, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.CART)) {
       localStorage.setItem(STORAGE_KEYS.CART, JSON.stringify([]));
     }
+
+    // Clean up hardcoded demo customer from previous sessions
+    try {
+      const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed?.id === 'usr-customer-01' || parsed?.email === 'a.aliahmed9704@gmail.com') {
+          localStorage.removeItem(STORAGE_KEYS.USER);
+        }
+      }
+    } catch {}
+  }
+
+  // --- SUPABASE LIVE SYNC ---
+  async syncProductsWithSupabase(): Promise<Product[]> {
+    if (!supabase || !isSupabaseConfigured) {
+      return this.getProducts();
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*, product_images(*)')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Supabase products fetch info:', error.message);
+        return this.getProducts();
+      }
+
+      if (Array.isArray(data)) {
+        const categories = this.getCategories();
+        const catMap = new Map(categories.map((c) => [c.id, c.name]));
+
+        const mapped: Product[] = data.map((row: any) => {
+          let imgs: string[] = [];
+          if (Array.isArray(row.product_images) && row.product_images.length > 0) {
+            imgs = row.product_images
+              .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0))
+              .map((im: any) => im.url)
+              .filter(Boolean);
+          } else if (Array.isArray(row.images)) {
+            imgs = row.images;
+          }
+          if (imgs.length === 0) {
+            imgs = [
+              'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80',
+            ];
+          }
+
+          return {
+            id: row.id,
+            name: row.name || 'Untitled Article',
+            slug:
+              row.slug ||
+              (row.name || 'product').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            categoryId: row.category_id || 'general',
+            categoryName: catMap.get(row.category_id) || row.category_name || 'General Collection',
+            sku: row.sku || `YM-${Math.floor(1000 + Math.random() * 9000)}`,
+            shortDescription: row.short_description || '',
+            description: row.description || '',
+            price: Number(row.price) || 0,
+            compareAtPrice: row.compare_at_price ? Number(row.compare_at_price) : undefined,
+            costPrice: row.cost_price ? Number(row.cost_price) : undefined,
+            stock: typeof row.stock === 'number' ? row.stock : 20,
+            lowStockThreshold: row.low_stock_threshold || 5,
+            images: imgs,
+            specifications: row.specifications || {},
+            isPublished: row.is_published !== false,
+            isFeatured: Boolean(row.is_featured),
+            isNewArrival: Boolean(row.is_new_arrival),
+            isBestseller: Boolean(row.is_bestseller),
+            rating: Number(row.rating) || 5.0,
+            reviewCount: Number(row.review_count) || 0,
+            createdAt: row.created_at || new Date().toISOString(),
+          };
+        });
+
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(mapped));
+        localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
+        this.recalculateCategoryCounts(mapped);
+        this.notifyListeners();
+        return mapped;
+      }
+    } catch (e) {
+      console.warn('Error during Supabase sync:', e);
+    }
+    return this.getProducts();
   }
 
   // --- PRODUCTS ---
@@ -120,7 +215,6 @@ class StoreService {
       if (data !== null) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed)) {
-          // Strictly deduplicate products by ID
           const seen = new Set<string>();
           const deduped: Product[] = [];
           for (const p of parsed) {
@@ -134,45 +228,47 @@ class StoreService {
           return deduped;
         }
       }
-      const dummyCleared = localStorage.getItem('yehmart_dummy_cleared_v1');
-      if (dummyCleared === 'true') {
-        return [];
-      }
-      return INITIAL_PRODUCTS;
+      return [];
     } catch {
       return [];
     }
   }
 
   getDummyProductCount(): number {
-    const dummyIds = new Set(INITIAL_PRODUCTS.map((p) => p.id));
-    const current = this.getProducts();
-    return current.filter((p) => dummyIds.has(p.id)).length;
+    return 0;
   }
 
   clearDummyProducts(): number {
-    const dummyIds = new Set(INITIAL_PRODUCTS.map((p) => p.id));
-    const current = this.getProducts();
-    const remaining = current.filter((p) => !dummyIds.has(p.id));
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(remaining));
-    localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
-    this.recalculateCategoryCounts(remaining);
-    return current.length - remaining.length;
+    return 0;
   }
 
   clearAllProducts(): void {
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
     localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
     this.recalculateCategoryCounts([]);
+    this.notifyListeners();
+
+    if (supabase && isSupabaseConfigured) {
+      (async () => {
+        try {
+          await supabase
+            .from('products')
+            .delete()
+            .neq('id', '00000000-0000-0000-0000-000000000000');
+        } catch (e) {
+          console.warn('Supabase clear products note:', e);
+        }
+      })();
+    }
   }
 
   resetToDummyProductsOnly(): Product[] {
     localStorage.removeItem('yehmart_dummy_cleared_v1');
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(INITIAL_PRODUCTS));
     this.recalculateCategoryCounts(INITIAL_PRODUCTS);
+    this.notifyListeners();
     return INITIAL_PRODUCTS;
   }
-
 
   bulkImportProducts(
     newProducts: Product[],
@@ -180,10 +276,6 @@ class StoreService {
     autoCreateCategories = true
   ): Product[] {
     let existing = this.getProducts();
-    if (removeDummyFirst) {
-      const dummyIds = new Set(INITIAL_PRODUCTS.map((p) => p.id));
-      existing = existing.filter((p) => !dummyIds.has(p.id));
-    }
 
     if (autoCreateCategories) {
       const currentCats = this.getCategories();
@@ -225,7 +317,6 @@ class StoreService {
       localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(updatedCats));
     }
 
-    // Deduplicate combined products by ID
     const seenProductIds = new Set<string>();
     const combined: Product[] = [];
     for (const p of [...newProducts, ...existing]) {
@@ -239,6 +330,7 @@ class StoreService {
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(combined));
     localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
     this.recalculateCategoryCounts(combined);
+    this.notifyListeners();
     return combined;
   }
 
@@ -273,44 +365,105 @@ class StoreService {
 
   saveProduct(product: Partial<Product>): Product {
     const products = this.getProducts();
-    if (product.id) {
-      const index = products.findIndex((p) => p.id === product.id);
+    const isNew = !product.id;
+    const finalId = product.id || generateUUID();
+
+    let savedItem: Product;
+
+    if (!isNew) {
+      const index = products.findIndex((p) => p.id === finalId);
       if (index !== -1) {
-        products[index] = { ...products[index], ...product };
-        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-        this.recalculateCategoryCounts(products);
-        return products[index];
+        products[index] = { ...products[index], ...product, id: finalId };
+        savedItem = products[index];
+      } else {
+        savedItem = {
+          id: finalId,
+          name: product.name || 'Untitled Product',
+          slug: (product.name || 'product').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          categoryId: product.categoryId || 'cat-general',
+          categoryName: product.categoryName || 'General',
+          sku: product.sku || `YM-${Math.floor(Math.random() * 8999 + 1000)}`,
+          shortDescription: product.shortDescription || '',
+          description: product.description || '',
+          price: product.price || 1999,
+          compareAtPrice: product.compareAtPrice,
+          costPrice: product.costPrice,
+          stock: product.stock ?? 20,
+          lowStockThreshold: product.lowStockThreshold ?? 5,
+          images: product.images && product.images.length > 0 ? product.images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80'],
+          specifications: product.specifications || {},
+          isPublished: product.isPublished ?? true,
+          isFeatured: product.isFeatured ?? false,
+          isNewArrival: product.isNewArrival ?? true,
+          isBestseller: product.isBestseller ?? false,
+          rating: 5.0,
+          reviewCount: 0,
+          createdAt: new Date().toISOString(),
+        };
+        products.unshift(savedItem);
       }
+    } else {
+      savedItem = {
+        id: finalId,
+        name: product.name || 'Untitled Product',
+        slug: (product.name || 'product').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        categoryId: product.categoryId || 'cat-general',
+        categoryName: product.categoryName || 'General',
+        sku: product.sku || `YM-${Math.floor(Math.random() * 8999 + 1000)}`,
+        shortDescription: product.shortDescription || '',
+        description: product.description || '',
+        price: product.price || 1999,
+        compareAtPrice: product.compareAtPrice,
+        costPrice: product.costPrice,
+        stock: product.stock ?? 20,
+        lowStockThreshold: product.lowStockThreshold ?? 5,
+        images: product.images && product.images.length > 0 ? product.images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80'],
+        specifications: product.specifications || {},
+        isPublished: product.isPublished ?? true,
+        isFeatured: product.isFeatured ?? false,
+        isNewArrival: product.isNewArrival ?? true,
+        isBestseller: product.isBestseller ?? false,
+        rating: 5.0,
+        reviewCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+      products.unshift(savedItem);
     }
-    // New product
-    const newProduct: Product = {
-      id: `prod-${Date.now()}`,
-      name: product.name || 'Untitled Product',
-      slug: (product.name || 'product').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      categoryId: product.categoryId || 'cat-tech-audio',
-      categoryName: product.categoryName || 'Tech & Wireless Audio',
-      sku: product.sku || `YM-${Math.floor(Math.random() * 8999 + 1000)}`,
-      shortDescription: product.shortDescription || '',
-      description: product.description || '',
-      price: product.price || 1999,
-      compareAtPrice: product.compareAtPrice,
-      costPrice: product.costPrice,
-      stock: product.stock ?? 20,
-      lowStockThreshold: product.lowStockThreshold ?? 5,
-      images: product.images && product.images.length > 0 ? product.images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80'],
-      specifications: product.specifications || {},
-      isPublished: product.isPublished ?? true,
-      isFeatured: product.isFeatured ?? false,
-      isNewArrival: product.isNewArrival ?? true,
-      isBestseller: product.isBestseller ?? false,
-      rating: 5.0,
-      reviewCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-    products.unshift(newProduct);
+
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
     this.recalculateCategoryCounts(products);
-    return newProduct;
+    this.notifyListeners();
+
+    if (supabase && isSupabaseConfigured) {
+      (async () => {
+        try {
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(savedItem.id);
+          const payload: any = {
+            name: savedItem.name,
+            slug: savedItem.slug,
+            sku: savedItem.sku,
+            short_description: savedItem.shortDescription,
+            description: savedItem.description,
+            price: savedItem.price,
+            compare_at_price: savedItem.compareAtPrice || null,
+            cost_price: savedItem.costPrice || null,
+            stock: savedItem.stock,
+            low_stock_threshold: savedItem.lowStockThreshold,
+            is_published: savedItem.isPublished,
+            is_featured: savedItem.isFeatured,
+            is_new_arrival: savedItem.isNewArrival,
+            is_bestseller: savedItem.isBestseller,
+            specifications: savedItem.specifications,
+          };
+          if (isUuid) payload.id = savedItem.id;
+          await supabase.from('products').upsert(payload);
+        } catch (e) {
+          console.warn('Supabase product save note:', e);
+        }
+      })();
+    }
+
+    return savedItem;
   }
 
   deleteProduct(productId: string): boolean {
@@ -318,6 +471,18 @@ class StoreService {
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
     localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
     this.recalculateCategoryCounts(products);
+    this.notifyListeners();
+
+    if (supabase && isSupabaseConfigured) {
+      (async () => {
+        try {
+          await supabase.from('products').delete().eq('id', productId);
+        } catch (e) {
+          console.warn('Supabase delete error note:', e);
+        }
+      })();
+    }
+
     return true;
   }
 
@@ -328,6 +493,18 @@ class StoreService {
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
     localStorage.setItem('yehmart_dummy_cleared_v1', 'true');
     this.recalculateCategoryCounts(products);
+    this.notifyListeners();
+
+    if (supabase && isSupabaseConfigured) {
+      (async () => {
+        try {
+          await supabase.from('products').delete().in('id', productIds);
+        } catch (e) {
+          console.warn('Supabase bulk delete note:', e);
+        }
+      })();
+    }
+
     return toDelete.size;
   }
 
@@ -342,6 +519,16 @@ class StoreService {
     });
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
     this.recalculateCategoryCounts(products);
+    this.notifyListeners();
+
+    if (supabase && isSupabaseConfigured) {
+      (async () => {
+        try {
+          await supabase.from('products').update({ is_published: isPublished }).in('id', productIds);
+        } catch {}
+      })();
+    }
+
     return targetIds.size;
   }
 
@@ -353,6 +540,16 @@ class StoreService {
     products[idx] = { ...products[idx], isPublished: !current };
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
     this.recalculateCategoryCounts(products);
+    this.notifyListeners();
+
+    if (supabase && isSupabaseConfigured) {
+      (async () => {
+        try {
+          await supabase.from('products').update({ is_published: !current }).eq('id', productId);
+        } catch {}
+      })();
+    }
+
     return products[idx];
   }
 
@@ -374,7 +571,6 @@ class StoreService {
         const cleanName = stripHtml(cat.name || '').trim();
         if (!cleanName || cleanName.length < 2) continue;
 
-        // Clean and normalize ID
         let cleanId = (cat.id || '').trim();
         if (
           !cleanId ||
@@ -387,7 +583,6 @@ class StoreService {
         }
 
         const normName = cleanName.toLowerCase();
-        // Skip duplicate IDs or duplicate Category Names
         if (seenIds.has(cleanId) || seenNames.has(normName)) {
           continue;
         }
@@ -399,30 +594,254 @@ class StoreService {
           ...cat,
           id: cleanId,
           name: cleanName,
-          slug: cat.slug
-            ? stripHtml(cat.slug).trim().replace(/^-+|-+$/g, '')
-            : cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'collection',
-          description: cat.description
-            ? stripHtml(cat.description).trim()
-            : `Exclusive ${cleanName} collection`,
+          slug: cat.slug || cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'collection',
         });
       }
 
-      const finalCats = cleaned.length > 0 ? cleaned : INITIAL_CATEGORIES;
-
-      // Auto-repair persisted localStorage if duplicates or corrupt entries were scrubbed
-      if (typeof window !== 'undefined' && cleaned.length !== rawList.length) {
-        try {
-          localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(finalCats));
-        } catch {
-          // Ignore write failure
-        }
-      }
-
-      return finalCats;
+      return cleaned;
     } catch {
       return INITIAL_CATEGORIES;
     }
+  }
+
+  getCategoryBySlug(slug: string): Category | undefined {
+    return this.getCategories().find((c) => c.slug === slug);
+  }
+
+  saveCategory(category: Partial<Category>): Category {
+    const categories = this.getCategories();
+    if (category.id) {
+      const index = categories.findIndex((c) => c.id === category.id);
+      if (index !== -1) {
+        categories[index] = { ...categories[index], ...category };
+        localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(categories));
+        return categories[index];
+      }
+    }
+    const newCategory: Category = {
+      id: category.id || `cat-${Date.now()}`,
+      name: category.name || 'New Category',
+      slug: (category.name || 'category').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      description: category.description || '',
+      imageUrl: category.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80',
+      displayOrder: categories.length + 1,
+      isFeatured: category.isFeatured ?? true,
+      productCount: 0,
+    };
+    categories.push(newCategory);
+    localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(categories));
+    return newCategory;
+  }
+
+  // --- ORDERS ---
+  getOrders(): Order[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.ORDERS);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  getOrderById(id: string): Order | undefined {
+    return this.getOrders().find((o) => o.id === id);
+  }
+
+  getOrderByNumber(orderNumber: string): Order | undefined {
+    const clean = orderNumber.trim().toUpperCase();
+    return this.getOrders().find(
+      (o) =>
+        o.orderNumber.toUpperCase() === clean ||
+        (o.trackingNumber && o.trackingNumber.toUpperCase() === clean) ||
+        o.id.toUpperCase() === clean
+    );
+  }
+
+  getOrderByTrackingNumber(trackingNumber: string): Order | undefined {
+    return this.getOrderByNumber(trackingNumber);
+  }
+
+  createOrder(orderData: Partial<Order>): Order {
+    const orders = this.getOrders();
+    const orderId = generateUUID();
+    const newOrder: Order = {
+      id: orderId,
+      orderNumber: `YM-${new Date().getFullYear().toString().slice(-2)}${Math.floor(100000 + Math.random() * 900000)}`,
+      userId: orderData.userId,
+      customerName: orderData.customerName || 'Customer',
+      customerEmail: orderData.customerEmail || '',
+      customerPhone: orderData.customerPhone || '',
+      shippingAddress: orderData.shippingAddress || {
+        recipientName: orderData.customerName || 'Customer',
+        phone: orderData.customerPhone || '',
+        streetAddress: 'House / Street',
+        city: 'Lahore',
+        province: 'Punjab',
+      },
+      deliveryNotes: orderData.deliveryNotes,
+      items: orderData.items || [],
+      subtotal: orderData.subtotal || 0,
+      discountAmount: orderData.discountAmount || 0,
+      couponCode: orderData.couponCode,
+      shippingFee: orderData.shippingFee || 0,
+      totalAmount: orderData.totalAmount || 0,
+      status: 'pending',
+      paymentMethod: orderData.paymentMethod || 'cash_on_delivery',
+      paymentStatus: 'unpaid',
+      trackingCarrier: 'TCS',
+      trackingNumber: `TCS${Math.floor(10000000 + Math.random() * 90000000)}`,
+      history: [
+        {
+          id: generateUUID(),
+          orderId: orderId,
+          status: 'pending',
+          note: 'Consignment booked successfully via YehMart portal.',
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    orders.unshift(newOrder);
+    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+
+    if (supabase && isSupabaseConfigured) {
+      (async () => {
+        try {
+          await supabase.from('orders').insert({
+            id: newOrder.id,
+            order_number: newOrder.orderNumber,
+            customer_name: newOrder.customerName,
+            customer_email: newOrder.customerEmail,
+            customer_phone: newOrder.customerPhone,
+            shipping_address: newOrder.shippingAddress,
+            subtotal: newOrder.subtotal,
+            discount_amount: newOrder.discountAmount,
+            shipping_fee: newOrder.shippingFee,
+            total_amount: newOrder.totalAmount,
+            payment_method: newOrder.paymentMethod,
+            payment_status: newOrder.paymentStatus,
+            delivery_notes: newOrder.deliveryNotes,
+          });
+        } catch (e) {
+          console.warn('Supabase order creation note:', e);
+        }
+      })();
+    }
+
+    return newOrder;
+  }
+
+  updateOrderStatus(
+    orderId: string,
+    status: OrderStatus,
+    note?: string,
+    carrier?: any,
+    trackingNumber?: string
+  ): Order | undefined {
+    const orders = this.getOrders();
+    const index = orders.findIndex((o) => o.id === orderId);
+    if (index === -1) return undefined;
+
+    const currentOrder = orders[index];
+    const newHistory: OrderStatusHistoryItem[] = [
+      ...(currentOrder.history || []),
+      {
+        id: generateUUID(),
+        orderId,
+        status,
+        note: note || `Status updated to ${status}.`,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    orders[index] = {
+      ...currentOrder,
+      status,
+      trackingCarrier: carrier || currentOrder.trackingCarrier,
+      trackingNumber: trackingNumber || currentOrder.trackingNumber,
+      history: newHistory,
+      updatedAt: new Date().toISOString(),
+    };
+
+    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+    return orders[index];
+  }
+
+  // --- COUPONS ---
+  getCoupons(): Coupon[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.COUPONS);
+      return data ? JSON.parse(data) : INITIAL_COUPONS;
+    } catch {
+      return INITIAL_COUPONS;
+    }
+  }
+
+  saveCoupon(coupon: Coupon): Coupon {
+    const coupons = this.getCoupons();
+    const index = coupons.findIndex((c) => c.id === coupon.id);
+    if (index !== -1) {
+      coupons[index] = coupon;
+    } else {
+      coupons.unshift(coupon);
+    }
+    localStorage.setItem(STORAGE_KEYS.COUPONS, JSON.stringify(coupons));
+    return coupon;
+  }
+
+  validateCoupon(code: string, cartSubtotal: number): {
+    valid: boolean;
+    discountAmount: number;
+    discount: number;
+    message: string;
+    coupon?: Coupon;
+  } {
+    const cleanCode = code.trim().toUpperCase();
+    const coupons = this.getCoupons();
+    const coupon = coupons.find((c) => c.code.toUpperCase() === cleanCode);
+
+    if (!coupon) {
+      return { valid: false, discountAmount: 0, discount: 0, message: 'Invalid voucher code.' };
+    }
+    if (!coupon.isActive) {
+      return { valid: false, discountAmount: 0, discount: 0, message: 'This promo code is currently inactive.' };
+    }
+    const now = new Date().toISOString();
+    if (coupon.validFrom && now < coupon.validFrom) {
+      return { valid: false, discountAmount: 0, discount: 0, message: 'This promo voucher has not started yet.' };
+    }
+    if (coupon.validUntil && now > coupon.validUntil) {
+      return { valid: false, discountAmount: 0, discount: 0, message: 'This promo voucher has expired.' };
+    }
+    if (cartSubtotal < coupon.minOrderAmount) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        discount: 0,
+        message: `Cart subtotal must be at least Rs. ${coupon.minOrderAmount.toLocaleString()} to apply.`,
+      };
+    }
+
+    let discount = 0;
+    if (coupon.discountType === 'percentage') {
+      discount = (cartSubtotal * coupon.discountValue) / 100;
+      if (coupon.maxDiscountAmount && discount > coupon.maxDiscountAmount) {
+        discount = coupon.maxDiscountAmount;
+      }
+    } else {
+      discount = coupon.discountValue;
+    }
+
+    const finalDiscount = Math.min(discount, cartSubtotal);
+    return {
+      valid: true,
+      discountAmount: finalDiscount,
+      discount: finalDiscount,
+      message: `Coupon applied: ${coupon.discountType === 'percentage' ? `${coupon.discountValue}% OFF` : `Rs. ${coupon.discountValue} OFF`}`,
+      coupon,
+    };
   }
 
   // --- FLASH SALE ---
@@ -436,202 +855,40 @@ class StoreService {
   }
 
   // --- REVIEWS ---
-  getReviewsForProduct(productId: string): Review[] {
+  getReviews(productId?: string): Review[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.REVIEWS);
       const all: Review[] = data ? JSON.parse(data) : INITIAL_REVIEWS;
-      return all.filter((r) => r.productId === productId);
-    } catch {
-      return INITIAL_REVIEWS.filter((r) => r.productId === productId);
-    }
-  }
-
-  addReview(review: Omit<Review, 'id' | 'createdAt' | 'isApproved'>): Review {
-    const all = this.getAllReviews();
-    const newRev: Review = {
-      ...review,
-      id: `rev-${Date.now()}`,
-      isApproved: true,
-      createdAt: new Date().toISOString(),
-    };
-    all.unshift(newRev);
-    localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(all));
-
-    // Update product rating
-    const prodReviews = all.filter((r) => r.productId === review.productId);
-    const avgRating = prodReviews.reduce((sum, r) => sum + r.rating, 0) / prodReviews.length;
-    const products = this.getProducts();
-    const pIdx = products.findIndex((p) => p.id === review.productId);
-    if (pIdx !== -1) {
-      products[pIdx].rating = Number(avgRating.toFixed(1));
-      products[pIdx].reviewCount = prodReviews.length;
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-    }
-
-    return newRev;
-  }
-
-  getReviews(): Review[] {
-    return this.getAllReviews();
-  }
-
-  private getAllReviews(): Review[] {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.REVIEWS);
-      return data ? JSON.parse(data) : INITIAL_REVIEWS;
+      return productId ? all.filter((r) => r.productId === productId && r.isApproved) : all;
     } catch {
       return INITIAL_REVIEWS;
     }
   }
 
-  // --- COUPONS ---
-  getCoupons(): Coupon[] {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.COUPONS);
-      return data ? JSON.parse(data) : INITIAL_COUPONS;
-    } catch {
-      return INITIAL_COUPONS;
-    }
+  getReviewsForProduct(productId: string): Review[] {
+    return this.getReviews(productId);
   }
 
-  validateCoupon(code: string, subtotal: number): { valid: boolean; discountAmount: number; message: string; coupon?: Coupon } {
-    const coupons = this.getCoupons();
-    const coupon = coupons.find((c) => c.code.toUpperCase() === code.trim().toUpperCase());
-
-    if (!coupon) {
-      return { valid: false, discountAmount: 0, message: 'Invalid coupon code.' };
-    }
-    if (!coupon.isActive) {
-      return { valid: false, discountAmount: 0, message: 'This coupon is no longer active.' };
-    }
-    if (subtotal < coupon.minOrderAmount) {
-      return {
-        valid: false,
-        discountAmount: 0,
-        message: `Requires minimum order of Rs. ${coupon.minOrderAmount.toLocaleString()}.`,
-      };
-    }
-
-    let discount = 0;
-    if (coupon.discountType === 'percentage') {
-      discount = (subtotal * coupon.discountValue) / 100;
-      if (coupon.maxDiscountAmount && discount > coupon.maxDiscountAmount) {
-        discount = coupon.maxDiscountAmount;
-      }
-    } else {
-      discount = coupon.discountValue;
-    }
-
-    return {
-      valid: true,
-      discountAmount: Math.round(discount),
-      message: `Coupon applied! You saved Rs. ${Math.round(discount).toLocaleString()}.`,
-      coupon,
-    };
-  }
-
-  saveCoupon(coupon: Coupon): void {
-    const coupons = this.getCoupons();
-    const index = coupons.findIndex((c) => c.id === coupon.id);
-    if (index !== -1) {
-      coupons[index] = coupon;
-    } else {
-      coupons.unshift(coupon);
-    }
-    localStorage.setItem(STORAGE_KEYS.COUPONS, JSON.stringify(coupons));
-  }
-
-  // --- ORDERS ---
-  getOrders(): Order[] {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.ORDERS);
-      return data ? JSON.parse(data) : INITIAL_ORDERS;
-    } catch {
-      return INITIAL_ORDERS;
-    }
-  }
-
-  getOrderByNumber(orderNumber: string): Order | undefined {
-    return this.getOrders().find(
-      (o) => o.orderNumber.toUpperCase() === orderNumber.trim().toUpperCase()
-    );
-  }
-
-  createOrder(
-    orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'updatedAt' | 'history' | 'status'>
-  ): Order {
-    const orders = this.getOrders();
-    const orderNumber = `YM-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const newOrder: Order = {
-      ...orderData,
-      id: `ord-${Date.now()}`,
-      orderNumber,
-      status: 'pending',
-      history: [
-        {
-          id: `h-${Date.now()}`,
-          orderId: `ord-${Date.now()}`,
-          status: 'pending',
-          note: `Order placed via ${orderData.paymentMethod.replace('_', ' ').toUpperCase()}`,
-          createdAt: new Date().toISOString(),
-        },
-      ],
+  addReview(reviewData: Partial<Review>): Review {
+    const reviews = this.getReviews();
+    const newReview: Review = {
+      id: generateUUID(),
+      productId: reviewData.productId || '',
+      userName: reviewData.userName || 'Verified Shopper',
+      userEmail: reviewData.userEmail,
+      rating: reviewData.rating || 5,
+      title: reviewData.title || 'Excellent article',
+      comment: reviewData.comment || '',
+      isVerifiedPurchase: true,
+      isApproved: true,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     };
-
-    // Deduct stock safely
-    const products = this.getProducts();
-    newOrder.items.forEach((item) => {
-      const p = products.find((prod) => prod.id === item.productId);
-      if (p) {
-        p.stock = Math.max(0, p.stock - item.quantity);
-      }
-    });
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-
-    orders.unshift(newOrder);
-    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
-
-    // Increment coupon used count if any
-    if (newOrder.couponCode) {
-      const coupons = this.getCoupons();
-      const c = coupons.find((cp) => cp.code.toUpperCase() === newOrder.couponCode?.toUpperCase());
-      if (c) {
-        c.usedCount = (c.usedCount || 0) + 1;
-        localStorage.setItem(STORAGE_KEYS.COUPONS, JSON.stringify(coupons));
-      }
-    }
-
-    return newOrder;
+    reviews.unshift(newReview);
+    localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(reviews));
+    return newReview;
   }
 
-  updateOrderStatus(orderId: string, status: OrderStatus, note?: string, carrier?: 'TCS' | 'Leopards' | 'Trax' | 'PostEx' | 'CallCourier', trackingNum?: string): Order | undefined {
-    const orders = this.getOrders();
-    const idx = orders.findIndex((o) => o.id === orderId);
-    if (idx === -1) return undefined;
-
-    const order = orders[idx];
-    order.status = status;
-    order.updatedAt = new Date().toISOString();
-    if (carrier) order.trackingCarrier = carrier;
-    if (trackingNum) order.trackingNumber = trackingNum;
-    if (status === 'delivered') order.paymentStatus = 'paid';
-
-    order.history.push({
-      id: `h-${Date.now()}`,
-      orderId,
-      status,
-      note: note || `Status updated to ${status}`,
-      createdAt: new Date().toISOString(),
-    });
-
-    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
-    return order;
-  }
-
-  // --- CART PERSISTENCE ---
+  // --- CART & WISHLIST STORAGE ---
   getCart(): CartItem[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.CART);
@@ -645,7 +902,6 @@ class StoreService {
     localStorage.setItem(STORAGE_KEYS.CART, JSON.stringify(cart));
   }
 
-  // --- WISHLIST PERSISTENCE ---
   getWishlist(): string[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.WISHLIST);
@@ -657,17 +913,17 @@ class StoreService {
 
   toggleWishlist(productId: string): boolean {
     const list = this.getWishlist();
-    const index = list.indexOf(productId);
-    let isAdded = false;
-    if (index > -1) {
-      list.splice(index, 1);
-      isAdded = false;
+    const idx = list.indexOf(productId);
+    let isIn = false;
+    if (idx !== -1) {
+      list.splice(idx, 1);
+      isIn = false;
     } else {
       list.push(productId);
-      isAdded = true;
+      isIn = true;
     }
     localStorage.setItem(STORAGE_KEYS.WISHLIST, JSON.stringify(list));
-    return isAdded;
+    return isIn;
   }
 
   // --- ADDRESSES ---
@@ -700,9 +956,15 @@ class StoreService {
   getCurrentUser(): UserProfile | null {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.USER);
-      return data ? JSON.parse(data) : DEMO_CUSTOMER;
+      if (!data) return null;
+      const parsed = JSON.parse(data);
+      if (parsed && (parsed.id === 'usr-customer-01' || parsed.email === 'a.aliahmed9704@gmail.com')) {
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        return null;
+      }
+      return parsed;
     } catch {
-      return DEMO_CUSTOMER;
+      return null;
     }
   }
 

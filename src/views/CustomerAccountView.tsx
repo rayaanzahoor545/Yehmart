@@ -31,7 +31,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   onSelectProduct,
   onGoToShop,
 }) => {
-  const { user, logout, updateProfile } = useAuth();
+  const { user, logout, updateProfile, openLoginModal, openRegisterModal } = useAuth();
   const { wishlist, toggleWishlist } = useWishlist();
   const { addToCart } = useCart();
 
@@ -85,6 +85,43 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 2000);
   };
+
+  if (!user) {
+    return (
+      <div className="bg-stone-50 min-h-screen py-16 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
+        <div className="max-w-md w-full bg-white rounded-3xl border border-stone-200 p-8 shadow-xl text-center">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-center mx-auto mb-5 shadow-xs">
+            <User className="w-8 h-8 text-emerald-700" />
+          </div>
+          <h2 className="text-2xl font-black text-stone-950 font-['Urbanist','Outfit',sans-serif] tracking-tight">
+            Account Sign In Required
+          </h2>
+          <p className="text-xs sm:text-sm text-stone-600 mt-2 leading-relaxed">
+            Sign in with your registered YehMart email or create a new account to view your past orders, delivery addresses, and saved wishlist.
+          </p>
+          <div className="mt-8 space-y-3">
+            <button
+              onClick={openLoginModal}
+              className="w-full py-3 px-5 bg-stone-950 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-stone-800 transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Sign In To Your Account</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={openRegisterModal}
+              className="w-full py-3 px-5 bg-stone-100 text-stone-800 hover:bg-stone-200 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+            >
+              <span>Create New Account</span>
+            </button>
+          </div>
+          <div className="mt-6 pt-6 border-t border-stone-100 flex items-center justify-center gap-2 text-[11px] text-stone-400">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Secure authentication via Supabase</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-stone-50 min-h-screen py-10 lg:py-14 border-b border-stone-200">
